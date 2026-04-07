@@ -323,11 +323,11 @@ app.delete('/productos/eliminar', async (req, res) => {
 });
 
 app.post('/guardarCompra', async (req, res) => {
-    let { idProducto, idUsuario } = req.body;
+    let { idProducto, idUsuario, fecha } = req.body;
 
     try {
-        const sql = "INSERT INTO `compras`( `idProducto`, `idUsuario`) VALUES ( ?, ?, ?)";
-        await db.execute(sql, [idProducto, idUsuario]);
+        const sql = "INSERT INTO `compras`( `idProducto`, `idUsuario`, fechaCompra) VALUES ( ?, ?, ?)";
+        await db.execute(sql, [idProducto, idUsuario, fecha]);
 
         res.status(201).json({
             success: true,
