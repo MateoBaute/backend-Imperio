@@ -6,12 +6,13 @@ const mysql = require('mysql2/promise');
 const app = express()
 
 const db = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: '',
+    host: 'mysql-2bb46cb6-mateobaute10-8084.d.aivencloud.com',
+    user: 'avnadmin',
+    password: 'AVNS_jFiUEZuuCMRT7TL8vah',
     database: 'imperio-gym',
     waitForConnections: true,
-    connectionLimit: 10
+    connectionLimit: 10,
+    port: 22286
 });
 
 app.use(cors())
