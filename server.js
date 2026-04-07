@@ -363,6 +363,25 @@ app.get('/compras', async (req, res) => {
     }
 });
 
+app.get('/comprasUsuario', async (req, res) => {
+    const { idUsuario } = req.body;
+    try{
+        const sql = 'SELECT * FROM `users` where id = ?';
+        const [rows] = await db.execute(sql, [idUsuario]);
+        res.status(200).json({
+            success: true,
+            user: rows[0]
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: 'Ha ocurrido un problema en el servidor'
+        });
+
+    };
+})
+
 
 
 require('dotenv').config();
