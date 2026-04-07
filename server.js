@@ -363,7 +363,7 @@ app.get('/compras', async (req, res) => {
     }
 });
 
-app.get('/comprasUsuario', async (req, res) => {
+app.post('/comprasUsuario', async (req, res) => {
     const { idUsuario } = req.body;
     try{
         const sql = 'SELECT * FROM `users` where id = ?';
