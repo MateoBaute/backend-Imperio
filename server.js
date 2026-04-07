@@ -346,7 +346,7 @@ app.post('/guardarCompra', async (req, res) => {
 });
 
 app.get('/compras', async (req, res) => {
-    try{
+    try {
         const sql = 'select * from compras';
         const [rows] = await db.execute(sql);
 
@@ -365,9 +365,17 @@ app.get('/compras', async (req, res) => {
 
 app.post('/comprasUsuario', async (req, res) => {
     const { idUsuario } = req.body;
-    try{
+    try {
         const sql = 'SELECT * FROM `users` where id = ?';
         const [rows] = await db.execute(sql, [idUsuario]);
+
+        if (rows.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            });
+        }
+
         res.status(200).json({
             success: true,
             user: rows[0]
@@ -381,6 +389,34 @@ app.post('/comprasUsuario', async (req, res) => {
 
     };
 })
+
+app.post('/productoCompra', async (req, res) => {
+    const { idProducto } = req.body;
+    try {
+        const sql = 'SELECT * FROM `productos` where id = ?;';
+        const [rows] = await db.execute(sql, [idProducto]);
+
+        if (rows.length === 0) {
+        console.log(rows)
+
+            return res.status(404).json({
+                success: false,
+                message: 'Producto no encontrado'
+            });
+        }
+        res.status(200).json({
+            success: true,
+            producto: rows[0]
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: 'Ha ocurrido un problema en el servidor'
+        });
+    }
+});
 
 
 
