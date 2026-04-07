@@ -392,9 +392,9 @@ app.post("/create_preference", async (req, res) => {
                 },
             ],
             back_urls: {
-                success: "https://localhost:3001/Success",
-                failure: "http://localhost:3001/Failure",
-                pending: "http://localhost:3001/Pending",
+                success: "https://https://imperio-gym.vercel.app//Success",
+                failure: "http://https://imperio-gym.vercel.app//Failure",
+                pending: "http://https://imperio-gym.vercel.app//Pending",
             },
             auto_return: "approved",
         };
