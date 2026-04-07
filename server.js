@@ -327,6 +327,7 @@ app.post('/guardarCompra', async (req, res) => {
 
     try {
         const sql = "INSERT INTO `compras`( `idProducto`, `idUsuario`, fechaCompra) VALUES ( ?, ?, ?)";
+
         await db.execute(sql, [idProducto, idUsuario, fecha]);
 
         res.status(201).json({
@@ -343,6 +344,25 @@ app.post('/guardarCompra', async (req, res) => {
 
     };
 });
+
+app.get('/compras', async (req, res) => {
+    try{
+        const sql = 'select * from compras';
+        const [rows] = await db.execute(sql);
+
+        res.status(201).json({
+            success: true,
+            compras: rows
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: 'Ha ocurrido un problema en el servidor'
+        });
+    }
+});
+
 
 
 require('dotenv').config();
