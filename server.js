@@ -398,6 +398,7 @@ app.post('/productoCompra', async (req, res) => {
     const { idProducto } = req.body;
     try {
         const sql = 'SELECT * FROM `productos` where id = ?;';
+        console.log(idProducto);
         const [rows] = await db.execute(sql, [idProducto]);
 
         if (rows.length === 0) {
