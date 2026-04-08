@@ -368,10 +368,10 @@ app.get('/compras', async (req, res) => {
 });
 
 app.post('/comprasUsuario', async (req, res) => {
-    const { idUsuario } = req.body;
+    const { idUsuarioInt } = req.body;
     try {
         const sql = 'SELECT * FROM `users` where id = ?';
-        const [rows] = await db.execute(sql, [idUsuario]);
+        const [rows] = await db.execute(sql, [idUsuarioInt]);
 
         if (rows.length === 0) {
             return res.status(404).json({
