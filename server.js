@@ -9,7 +9,7 @@ const db = mysql.createPool({
     host: 'mysql-2bb46cb6-mateobaute10-8084.d.aivencloud.com',
     user: 'avnadmin',
     password: 'AVNS_jFiUEZuuCMRT7TL8vah',
-    database: 'imperio-gym',
+    database: 'defaultdb',
     waitForConnections: true,
     connectionLimit: 10,
     port: 22286
