@@ -396,10 +396,12 @@ app.post('/comprasUsuario', async (req, res) => {
 
 app.post('/productoCompra', async (req, res) => {
     const { idProducto } = req.body;
+    const idProd = Number(idProducto);
     try {
-        const sql = 'SELECT * FROM `productos` where id = ?;';
-        console.log(idProducto);
-        const [rows] = await db.execute(sql, [idProducto]);
+        const sql = 'SELECT name, price, description FROM productos where id = ?;';
+        console.log(idProd, sql);
+        const [rows] = await db.execute(sql, [idProd]);
+        
 
         if (rows.length === 0) {
         console.log(rows)
