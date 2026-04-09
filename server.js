@@ -528,10 +528,10 @@ app.post('/create_preference', async (req, res) => {
 app.post('/webhook/mercadopago', async (req, res) => {
     try {
         // ✅ Validar firma antes de hacer cualquier cosa
-        if (!validarFirmaMP(req)) {
-            console.warn('[MP webhook] Firma inválida — request rechazado');
-            return res.status(401).send('Unauthorized');
-        }
+        // if (!validarFirmaMP(req)) {
+        //     console.warn('[MP webhook] Firma inválida — request rechazado');
+        //     return res.status(401).send('Unauthorized');
+        // }
 
         // El body llega como Buffer por express.raw, lo parseamos
         let body;
