@@ -1,6 +1,8 @@
 const express = require('express')
 const cors = require('cors')
 const multer = require("multer");
+require('dotenv').config();
+
 
 const mysql = require('mysql2/promise');
 const app = express()
@@ -425,9 +427,76 @@ app.post('/productoCompra', async (req, res) => {
     }
 });
 
+app.post('/webhook/mercadopago', async (req, res) => {
+    try {
+        const topic = req.query.topic || req.body?.type || req.body?.topic;
+        const paymentId =
+            req.query.id ||
+            req.query['data.id'] ||
+            req.body?.data?.id;
+
+        if (topic && String(topic) !== 'payment') {
+            return res.status(200).send('OK');
+        }
+
+        if (!paymentId) {
+            console.warn('[MP webhook] Sin id de pago', { query: req.query, body: req.body });
+            return res.status(200).send('OK');
+        }
+
+        const token = process.env.MP_ACCESS_TOKEN;
+        if (!token) {
+            console.error('[MP webhook] Falta MP_ACCESS_TOKEN');
+            return res.status(200).send('OK');
+        }
+
+        const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!payRes.ok) {
+            const text = await payRes.text();
+            console.error('[MP webhook] Error al consultar pago', payRes.status, text);
+            return res.status(200).send('OK');
+        }
+
+        const payment = await payRes.json();
+
+        if (payment.status !== 'approved') {
+            return res.status(200).send('OK');
+        }
+
+        const idProducto = Number(payment.metadata?.id_producto);
+        const idUsuario = Number(payment.metadata?.id_usuario);
+
+        if (
+            !Number.isFinite(idProducto) ||
+            idProducto <= 0 ||
+            !Number.isFinite(idUsuario) ||
+            idUsuario <= 0
+        ) {
+            console.warn(
+                '[MP webhook] Pago aprobado sin metadata id_producto / id_usuario',
+                payment.metadata
+            );
+            return res.status(200).send('OK');
+        }
+
+        const fecha = new Date().toISOString().split('T')[0];
+        const sql =
+            'INSERT INTO `compras`(`idProducto`, `idUsuario`, `fechaCompra`) VALUES (?, ?, ?)';
+
+        await db.execute(sql, [idProducto, idUsuario, fecha]);
+
+        return res.status(200).json({ ok: true });
+    } catch (error) {
+        console.error('[MP webhook]', error);
+        return res.status(200).send('OK');
+    }
+});
 
 
-require('dotenv').config();
+
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 
 // Configura con tu Access Token de prueba
@@ -435,13 +504,23 @@ const client = new MercadoPagoConfig({
     accessToken: process.env.MP_ACCESS_TOKEN // Tu token en el archivo .env
 });
 
-app.post("/create_preference", async (req, res) => {
+app.post('/create_preference', async (req, res) => {
     try {
-        const { name, price } = req.body;
+        const { name, price, idProducto, idUsuario } = req.body;
+        const parsedPrice = Number(String(price).replace(',', '.'));
+        const idProd = Number(idProducto);
+        const idUser = Number(idUsuario);
 
-        // Validación básica
-        if (!name || !price) {
-            return res.status(400).json({ error: "Faltan datos: name o price" });
+        if (!name || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
+            return res.status(400).json({ error: 'Faltan datos: name o price inválido' });
+        }
+        if (!Number.isFinite(idProd) || idProd <= 0 || !Number.isFinite(idUser) || idUser <= 0) {
+            return res.status(400).json({ error: 'Faltan datos: idProducto o idUsuario' });
+        }
+
+        const notificationUrl = process.env.MP_NOTIFICATION_URL;
+        if (!notificationUrl) {
+            console.warn('[create_preference] Falta MP_NOTIFICATION_URL (webhook público)');
         }
 
         const body = {
@@ -449,34 +528,41 @@ app.post("/create_preference", async (req, res) => {
                 {
                     title: name,
                     quantity: 1,
-                    unit_price: Number(price),
-                    currency_id: "ARS",
+                    unit_price: parsedPrice,
+                    currency_id: 'ARS',
                 },
             ],
-            back_urls: {
-                success: "https://imperio-gym.vercel.app/Success",
-                failure: "https://imperio-gym.vercel.app/Failure",
-                pending: "https://imperio-gym.vercel.app/Pending",
+            metadata: {
+                id_producto: String(idProd),
+                id_usuario: String(idUser),
             },
-            auto_return: "approved",
+            back_urls: {
+                success: 'https://imperio-gym.vercel.app/Success',
+                failure: 'https://imperio-gym.vercel.app/Failure',
+                pending: 'https://imperio-gym.vercel.app/Pending',
+            },
+            auto_return: 'approved',
         };
+
+        if (notificationUrl) {
+            body.notification_url = notificationUrl;
+        }
 
         const preference = new Preference(client);
         const result = await preference.create({ body });
 
-        // Enviamos el init_point para que el front redireccione
         res.json({
             id: result.id,
-            init_point: result.init_point
+            init_point: result.init_point,
         });
-
     } catch (error) {
-        console.error("ERROR EN MP:", error);
+        console.error('ERROR EN MP:', error);
         res.status(500).json({
-            error: "Error al crear la preferencia",
-            details: error.message
+            error: 'Error al crear la preferencia',
+            details: error.message,
         });
     }
 });
+
 
 app.listen(3001, () => console.log("Servidor corriendo en el puerto 3001"));
