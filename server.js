@@ -34,7 +34,6 @@ const upload = multer({
 function validarFirmaMP(req) {
     const secret = process.env.MP_WEBHOOK_SECRET;
     if (!secret) {
-        console.warn('[MP webhook] Falta MP_WEBHOOK_SECRET en .env — omitiendo validación de firma');
         return true;
     }
 
