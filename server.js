@@ -1,8 +1,8 @@
 const express = require('express')
 const cors = require('cors')
 const multer = require("multer");
+const crypto = require('crypto');
 require('dotenv').config();
-
 
 const mysql = require('mysql2/promise');
 const app = express()
@@ -17,41 +17,87 @@ const db = mysql.createPool({
     port: 22286
 });
 
+// ⚠️ El webhook de MP necesita el body crudo (raw) para validar la firma.
+// Por eso usamos express.raw SOLO para esa ruta, y express.json para el resto.
+app.use('/webhook/mercadopago', express.raw({ type: 'application/json' }));
 app.use(cors())
 app.use(express.json())
-
-
-
 
 const upload = multer({
     storage: multer.memoryStorage()
 });
 
+// ─────────────────────────────────────────────
+// UTILIDAD: Validar firma del webhook de MP
+// Requiere MP_WEBHOOK_SECRET en .env
+// ─────────────────────────────────────────────
+function validarFirmaMP(req) {
+    const secret = process.env.MP_WEBHOOK_SECRET;
+    if (!secret) {
+        console.warn('[MP webhook] Falta MP_WEBHOOK_SECRET en .env — omitiendo validación de firma');
+        return true; // Si no configuraste el secret todavía, dejás pasar (pero configuralo!)
+    }
+
+    const signature = req.headers['x-signature'];
+    const requestId = req.headers['x-request-id'];
+
+    if (!signature || !requestId) {
+        console.warn('[MP webhook] Headers de firma ausentes');
+        return false;
+    }
+
+    // El header x-signature tiene formato: "ts=...,v1=..."
+    const parts = Object.fromEntries(
+        signature.split(',').map(part => part.split('='))
+    );
+    const ts = parts['ts'];
+    const v1 = parts['v1'];
+
+    if (!ts || !v1) return false;
+
+    const dataId = req.query['data.id'] || req.query.id || '';
+    const manifest = `id:${dataId};request-id:${requestId};ts:${ts};`;
+
+    const expected = crypto
+        .createHmac('sha256', secret)
+        .update(manifest)
+        .digest('hex');
+
+    return v1 === expected;
+}
+
+
+// ─────────────────────────────────────────────
+// HEALTH CHECK
+// ─────────────────────────────────────────────
 app.get("/", (req, res) => {
-  res.send("OK");
+    res.send("OK");
 });
 
 
+// ─────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────
 app.post('/register', async (req, res) => {
     const { name, pass, email } = req.body;
 
     try {
         if (!name || !pass || !email) {
-            return res.status(400).json({ succes: false, menssage: 'Complete all fields' })
+            return res.status(400).json({ success: false, message: 'Complete all fields' })
         }
         const sql = "INSERT INTO users (name, password, email) VALUES (?, ?, ?)";
         await db.execute(sql, [name, pass, email]);
 
         res.status(201).json({
-            succes: true,
-            menssage: 'Successfully registered user'
+            success: true,
+            message: 'Successfully registered user'
         });
 
     } catch (error) {
         console.error(error);
         res.status(500).json({
-            succes: false,
-            menssage: 'Error registering user'
+            success: false,
+            message: 'Error registering user'
         });
     }
 });
@@ -71,19 +117,21 @@ app.post('/login', async (req, res) => {
                 id: rows[0].id
             });
         } else {
-            res.status(401).json({ success: false, menssage: 'Invalid credentials' })
+            res.status(401).json({ success: false, message: 'Invalid credentials' })
         }
     } catch (error) {
         console.error(error)
-        res.status(500).json({ success: false, menssage: "Server error" })
+        res.status(500).json({ success: false, message: "Server error" })
     }
 })
 
+
+// ─────────────────────────────────────────────
+// RUTINAS
+// ─────────────────────────────────────────────
 app.get('/rutinas', async (req, res) => {
     try {
-        const connection = await db.getConnection(); // Obtenemos una conexión
-
-        // 1. AMPLIAMOS EL LÍMITE DE CARACTERES PARA ESTA SESIÓN
+        const connection = await db.getConnection();
         await connection.execute("SET SESSION group_concat_max_len = 10000");
 
         const sql = `SELECT 
@@ -107,7 +155,7 @@ app.get('/rutinas', async (req, res) => {
         ORDER BY r.nombre_rutina;`;
 
         const [rows] = await connection.execute(sql);
-        connection.release(); // Liberamos la conexión
+        connection.release();
 
         const dataFormateada = rows.map(row => ({
             ...row,
@@ -132,18 +180,16 @@ app.get('/ejercicios', async (req, res) => {
             success: true,
             data: rows
         });
-
     } catch (error) {
         console.error('Error en el servidor', error)
         res.status(500).json({
             success: false,
-            menssage: 'Error interno del servidor'
+            message: 'Error interno del servidor'
         })
     }
 })
 
 app.post('/nuevaRutina', async (req, res) => {
-    // asegurarse de que los campos numéricos llegan como números válidos
     let { nombreRutina, nivel, creador, ejercicios } = req.body;
     creador = parseInt(creador, 10) || null;
 
@@ -159,14 +205,12 @@ app.post('/nuevaRutina', async (req, res) => {
     try {
         await connection.beginTransaction();
 
-        // 1. Insertar la rutina general
         const [resRutina] = await connection.execute(
             'INSERT INTO rutinas (nombre_rutina, nivel, creador) VALUES (?, ?, ?)',
             [nombreRutina, nivel, creador]
         );
         const rutinaId = resRutina.insertId;
 
-        // 2. Insertar cada ejercicio del array
         const sqlDetalle = 'INSERT INTO rutina_detalle (rutina_id, ejercicio_id, series, repeticiones, orden) VALUES (?, ?, ?, ?, ?)';
 
         for (let i = 0; i < ejercicios.length; i++) {
@@ -187,7 +231,6 @@ app.post('/nuevaRutina', async (req, res) => {
 });
 
 app.patch('/editarRutina/:id', async (req, res) => {
-    // parsear id de parámetro y datos numéricos del cuerpo
     let rutinaId = parseInt(req.params.id, 10);
     if (isNaN(rutinaId)) {
         return res.status(400).json({ success: false, message: 'ID de rutina inválido' });
@@ -211,9 +254,7 @@ app.patch('/editarRutina/:id', async (req, res) => {
         await connection.beginTransaction();
 
         const sqlUpdateRutina = 'UPDATE rutinas SET nombre_rutina = ?, nivel = ?, creador = ? WHERE id = ?';
-        // Usamos las variables corregidas (rutinaId en lugar de id)
         await connection.execute(sqlUpdateRutina, [nombreRutina, nivel, creador, rutinaId]);
-
         await connection.execute('DELETE FROM rutina_detalle WHERE rutina_id = ?', [rutinaId]);
 
         const sqlInsertEjercicios = 'INSERT INTO rutina_detalle (rutina_id, ejercicio_id, series, repeticiones, orden) VALUES (?, ?, ?, ?, ?)';
@@ -221,7 +262,7 @@ app.patch('/editarRutina/:id', async (req, res) => {
             await connection.execute(sqlInsertEjercicios, [rutinaId, ej.ejercicio_id, ej.series, ej.repeticiones, null]);
         }
 
-        await connection.commit(); // IMPORTANTE
+        await connection.commit();
         res.status(200).json({ success: true, message: 'Editado con éxito' });
     } catch (error) {
         await connection.rollback();
@@ -235,21 +276,22 @@ app.patch('/editarRutina/:id', async (req, res) => {
 app.delete('/rutinaEliminar/:id', async (req, res) => {
     const { id } = req.params;
     try {
-        // Ejecutas las 3 sentencias SQL (Detalle, Usuario_Rutina y Rutina)
         await db.query("DELETE FROM rutina_detalle WHERE rutina_id = ?", [id]);
         await db.query("DELETE FROM usuario_rutina WHERE rutina_id = ?", [id]);
         await db.query("DELETE FROM rutinas WHERE id = ?", [id]);
-
         res.status(200).send("Eliminado");
     } catch (error) {
         res.status(500).send(error);
     }
 });
 
+
+// ─────────────────────────────────────────────
+// PRODUCTOS
+// ─────────────────────────────────────────────
 app.get('/productosGet', async (req, res) => {
     try {
         const sql = "SELECT * FROM productos";
-
         const [rows] = await db.execute(sql);
         res.status(200).json({
             success: true,
@@ -267,47 +309,32 @@ app.get('/productosGet', async (req, res) => {
 app.post("/productos", upload.single("imagen"), (req, res) => {
     const { nombre, precio, descripcion, size, color } = req.body;
     const imagen = req.file.buffer;
-    // console.log(descripcion)
 
-    const sql = `
-    INSERT INTO productos (name, price, description, img, size, color)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `;
+    const sql = `INSERT INTO productos (name, price, description, img, size, color) VALUES (?, ?, ?, ?, ?, ?)`;
 
     db.query(sql, [nombre, precio, descripcion, imagen, size, color], (err) => {
         if (err) {
             console.error(err);
             return res.status(500).send("Error al guardar");
         }
-
         res.send("Producto creado correctamente");
     });
 });
 
-
 app.get("/productos/:id/imagen", async (req, res) => {
     try {
         const { id } = req.params;
-
         const sql = "SELECT img FROM productos WHERE id = ?";
-
         const [result] = await db.query(sql, [id]);
 
-        if (result.length === 0) {
-            return res.status(404).send("No encontrado");
-        }
+        if (result.length === 0) return res.status(404).send("No encontrado");
 
         const imagenRaw = result[0].img;
-
-        if (!imagenRaw) {
-            return res.status(404).send("Sin imagen");
-        }
+        if (!imagenRaw) return res.status(404).send("Sin imagen");
 
         const imagen = Buffer.from(imagenRaw.data || imagenRaw);
-
-        res.setHeader("Content-Type", "image/png", "image/jpeg", "image/jpg");
+        res.setHeader("Content-Type", "image/jpeg");
         res.end(imagen);
-
     } catch (err) {
         console.error(err);
         res.status(500).send("Error");
@@ -316,11 +343,9 @@ app.get("/productos/:id/imagen", async (req, res) => {
 
 app.delete('/productos/eliminar', async (req, res) => {
     const { id } = req.body;
-    // console.log(id);
-
     try {
         const sql = "DELETE FROM productos WHERE id = ?";
-        const [resultts] = await db.execute(sql, [id]);
+        await db.execute(sql, [id]);
         res.status(200).send("Producto eliminado correctamente");
     } catch (error) {
         console.error(error);
@@ -328,35 +353,41 @@ app.delete('/productos/eliminar', async (req, res) => {
     }
 });
 
+
+// ─────────────────────────────────────────────
+// COMPRAS
+// ─────────────────────────────────────────────
+
+// NOTA: Esta ruta quedó deshabilitada del flujo de pago.
+// Las compras ahora se registran ÚNICAMENTE desde el webhook de MP
+// tras verificar que el pago fue aprobado. No llamar desde el frontend.
+// Se mantiene solo por si se necesita registrar compras manualmente (admin).
 app.post('/guardarCompra', async (req, res) => {
     let { idProducto, idUsuario, fecha } = req.body;
 
     try {
-        const sql = "INSERT INTO `compras`( `idProducto`, `idUsuario`, fechaCompra) VALUES ( ?, ?, ?)";
-
+        const sql = "INSERT INTO `compras`(`idProducto`, `idUsuario`, fechaCompra) VALUES (?, ?, ?)";
         await db.execute(sql, [idProducto, idUsuario, fecha]);
 
         res.status(201).json({
             success: true,
             message: 'Producto Guardado Correctamente'
         });
-
     } catch (error) {
         console.error(error);
         res.status(500).json({
             success: false,
             message: 'Ha ocurrido un problema en el servidor'
         });
-
     };
 });
 
 app.get('/compras', async (req, res) => {
     try {
-        const sql = 'select * from compras';
+        const sql = 'SELECT * FROM compras';
         const [rows] = await db.execute(sql);
 
-        res.status(201).json({
+        res.status(200).json({
             success: true,
             compras: rows
         });
@@ -372,7 +403,7 @@ app.get('/compras', async (req, res) => {
 app.post('/comprasUsuario', async (req, res) => {
     const { idUsuarioInt } = req.body;
     try {
-        const sql = 'SELECT * FROM `users` where id = ?';
+        const sql = 'SELECT * FROM users WHERE id = ?';
         const [rows] = await db.execute(sql, [idUsuarioInt]);
 
         if (rows.length === 0) {
@@ -392,7 +423,6 @@ app.post('/comprasUsuario', async (req, res) => {
             success: false,
             message: 'Ha ocurrido un problema en el servidor'
         });
-
     };
 })
 
@@ -400,24 +430,20 @@ app.post('/productoCompra', async (req, res) => {
     const { idProducto } = req.body;
     const idProd = Number(idProducto);
     try {
-        const sql = 'SELECT name, price, description FROM productos where id = ?;';
-        console.log(idProd, sql);
+        const sql = 'SELECT name, price, description FROM productos WHERE id = ?';
         const [rows] = await db.execute(sql, [idProd]);
-        
 
         if (rows.length === 0) {
-        console.log(rows)
-
             return res.status(404).json({
                 success: false,
                 message: 'Producto no encontrado'
             });
         }
+
         res.status(200).json({
             success: true,
             producto: rows[0]
         });
-
     } catch (error) {
         console.error(error);
         res.status(500).json({
@@ -427,81 +453,14 @@ app.post('/productoCompra', async (req, res) => {
     }
 });
 
-app.post('/webhook/mercadopago', async (req, res) => {
-    try {
-        const topic = req.query.topic || req.body?.type || req.body?.topic;
-        const paymentId =
-            req.query.id ||
-            req.query['data.id'] ||
-            req.body?.data?.id;
 
-        if (topic && String(topic) !== 'payment') {
-            return res.status(200).send('OK');
-        }
-
-        if (!paymentId) {
-            console.warn('[MP webhook] Sin id de pago', { query: req.query, body: req.body });
-            return res.status(200).send('OK');
-        }
-
-        const token = process.env.MP_ACCESS_TOKEN;
-        if (!token) {
-            console.error('[MP webhook] Falta MP_ACCESS_TOKEN');
-            return res.status(200).send('OK');
-        }
-
-        const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
-            headers: { Authorization: `Bearer ${token}` },
-        });
-
-        if (!payRes.ok) {
-            const text = await payRes.text();
-            console.error('[MP webhook] Error al consultar pago', payRes.status, text);
-            return res.status(200).send('OK');
-        }
-
-        const payment = await payRes.json();
-
-        if (payment.status !== 'approved') {
-            return res.status(200).send('OK');
-        }
-
-        const idProducto = Number(payment.metadata?.id_producto);
-        const idUsuario = Number(payment.metadata?.id_usuario);
-
-        if (
-            !Number.isFinite(idProducto) ||
-            idProducto <= 0 ||
-            !Number.isFinite(idUsuario) ||
-            idUsuario <= 0
-        ) {
-            console.warn(
-                '[MP webhook] Pago aprobado sin metadata id_producto / id_usuario',
-                payment.metadata
-            );
-            return res.status(200).send('OK');
-        }
-
-        const fecha = new Date().toISOString().split('T')[0];
-        const sql =
-            'INSERT INTO `compras`(`idProducto`, `idUsuario`, `fechaCompra`) VALUES (?, ?, ?)';
-
-        await db.execute(sql, [idProducto, idUsuario, fecha]);
-
-        return res.status(200).json({ ok: true });
-    } catch (error) {
-        console.error('[MP webhook]', error);
-        return res.status(200).send('OK');
-    }
-});
-
-
-
+// ─────────────────────────────────────────────
+// MERCADO PAGO
+// ─────────────────────────────────────────────
 const { MercadoPagoConfig, Preference } = require('mercadopago');
 
-// Configura con tu Access Token de prueba
 const client = new MercadoPagoConfig({
-    accessToken: process.env.MP_ACCESS_TOKEN // Tu token en el archivo .env
+    accessToken: process.env.MP_ACCESS_TOKEN
 });
 
 app.post('/create_preference', async (req, res) => {
@@ -520,7 +479,7 @@ app.post('/create_preference', async (req, res) => {
 
         const notificationUrl = process.env.MP_NOTIFICATION_URL;
         if (!notificationUrl) {
-            console.warn('[create_preference] Falta MP_NOTIFICATION_URL (webhook público)');
+            console.warn('[create_preference] Falta MP_NOTIFICATION_URL — el webhook no recibirá notificaciones');
         }
 
         const body = {
@@ -532,9 +491,10 @@ app.post('/create_preference', async (req, res) => {
                     currency_id: 'ARS',
                 },
             ],
+            // ✅ FIX: metadata como números, no strings
             metadata: {
-                id_producto: String(idProd),
-                id_usuario: String(idUser),
+                id_producto: idProd,
+                id_usuario: idUser,
             },
             back_urls: {
                 success: 'https://imperio-gym.vercel.app/Success',
@@ -561,6 +521,101 @@ app.post('/create_preference', async (req, res) => {
             error: 'Error al crear la preferencia',
             details: error.message,
         });
+    }
+});
+
+// ✅ WEBHOOK: MP llama aquí cuando el pago cambia de estado.
+// Verificamos la firma, consultamos el pago, y si está aprobado guardamos la compra.
+app.post('/webhook/mercadopago', async (req, res) => {
+    try {
+        // ✅ Validar firma antes de hacer cualquier cosa
+        if (!validarFirmaMP(req)) {
+            console.warn('[MP webhook] Firma inválida — request rechazado');
+            return res.status(401).send('Unauthorized');
+        }
+
+        // El body llega como Buffer por express.raw, lo parseamos
+        let body;
+        try {
+            body = JSON.parse(req.body.toString());
+        } catch {
+            body = {};
+        }
+
+        const topic = req.query.topic || body?.type || body?.topic;
+        const paymentId =
+            req.query.id ||
+            req.query['data.id'] ||
+            body?.data?.id;
+
+        // Ignorar notificaciones que no son de pago
+        if (topic && String(topic) !== 'payment') {
+            return res.status(200).send('OK');
+        }
+
+        if (!paymentId) {
+            console.warn('[MP webhook] Sin id de pago', { query: req.query, body });
+            return res.status(200).send('OK');
+        }
+
+        const token = process.env.MP_ACCESS_TOKEN;
+        if (!token) {
+            console.error('[MP webhook] Falta MP_ACCESS_TOKEN');
+            return res.status(200).send('OK');
+        }
+
+        // Consultamos el estado real del pago directamente a la API de MP
+        const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!payRes.ok) {
+            const text = await payRes.text();
+            console.error('[MP webhook] Error al consultar pago', payRes.status, text);
+            return res.status(200).send('OK');
+        }
+
+        const payment = await payRes.json();
+
+        // Solo procesamos pagos aprobados
+        if (payment.status !== 'approved') {
+            return res.status(200).send('OK');
+        }
+
+        const idProducto = Number(payment.metadata?.id_producto);
+        const idUsuario = Number(payment.metadata?.id_usuario);
+
+        if (
+            !Number.isFinite(idProducto) || idProducto <= 0 ||
+            !Number.isFinite(idUsuario) || idUsuario <= 0
+        ) {
+            console.warn('[MP webhook] Pago aprobado sin metadata válida', payment.metadata);
+            return res.status(200).send('OK');
+        }
+
+        const [existing] = await db.execute(
+            'SELECT id FROM compras WHERE payment_id = ?',
+            [String(paymentId)]
+        );
+        if (existing.length > 0) {
+            console.log(`[MP webhook] Compra ya registrada para payment_id ${paymentId}`);
+            return res.status(200).json({ ok: true, duplicate: true });
+        }
+
+        const fecha = new Date().toISOString().split('T')[0];
+
+
+        await db.execute(
+            'INSERT INTO `compras`(`idProducto`, `idUsuario`, `fechaCompra`, `payment_id`) VALUES (?, ?, ?, ?)',
+            [idProducto, idUsuario, fecha, String(paymentId)]
+        );
+
+        console.log(`[MP webhook] Compra registrada — producto ${idProducto}, usuario ${idUsuario}`);
+        return res.status(200).json({ ok: true });
+
+    } catch (error) {
+        console.error('[MP webhook] Error inesperado:', error);
+        return res.status(200).send('OK');
     }
 });
 
