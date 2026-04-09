@@ -35,7 +35,7 @@ function validarFirmaMP(req) {
     const secret = process.env.MP_WEBHOOK_SECRET;
     if (!secret) {
         console.warn('[MP webhook] Falta MP_WEBHOOK_SECRET en .env — omitiendo validación de firma');
-        return true; // Si no configuraste el secret todavía, dejás pasar (pero configuralo!)
+        return true;
     }
 
     const signature = req.headers['x-signature'];
