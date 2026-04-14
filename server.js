@@ -619,4 +619,25 @@ app.post('/webhook/mercadopago', async (req, res) => {
 });
 
 
+app.delete('/eliminarProducto', async (req, res) =>{
+    const { id } = req.body;
+
+    try{
+        const sql = 'delete from compras where id = ?'
+        await db.execute(sql, [id])
+        
+        res.status(200).json({
+            success: true,
+            message: 'Pedido Eliminado con exito'
+        });
+        
+    }catch (error){
+        res.status(500).json({
+            success: false,
+            message: 'error al conectar con el servidor'
+        });
+    }
+
+})
+
 app.listen(3001, () => console.log("Servidor corriendo en el puerto 3001"));
