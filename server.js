@@ -490,7 +490,6 @@ app.post('/create_preference', async (req, res) => {
                     currency_id: 'ARS',
                 },
             ],
-            // ✅ FIX: metadata como números, no strings
             metadata: {
                 id_producto: idProd,
                 id_usuario: idUser,
@@ -523,17 +522,8 @@ app.post('/create_preference', async (req, res) => {
     }
 });
 
-// ✅ WEBHOOK: MP llama aquí cuando el pago cambia de estado.
-// Verificamos la firma, consultamos el pago, y si está aprobado guardamos la compra.
 app.post('/webhook/mercadopago', async (req, res) => {
     try {
-        // ✅ Validar firma antes de hacer cualquier cosa
-        // if (!validarFirmaMP(req)) {
-        //     console.warn('[MP webhook] Firma inválida — request rechazado');
-        //     return res.status(401).send('Unauthorized');
-        // }
-
-        // El body llega como Buffer por express.raw, lo parseamos
         let body;
         try {
             body = JSON.parse(req.body.toString());
@@ -547,7 +537,6 @@ app.post('/webhook/mercadopago', async (req, res) => {
             req.query['data.id'] ||
             body?.data?.id;
 
-        // Ignorar notificaciones que no son de pago
         if (topic && String(topic) !== 'payment') {
             return res.status(200).send('OK');
         }
@@ -563,7 +552,6 @@ app.post('/webhook/mercadopago', async (req, res) => {
             return res.status(200).send('OK');
         }
 
-        // Consultamos el estado real del pago directamente a la API de MP
         const payRes = await fetch(`https://api.mercadopago.com/v1/payments/${paymentId}`, {
             headers: { Authorization: `Bearer ${token}` },
         });
@@ -576,7 +564,6 @@ app.post('/webhook/mercadopago', async (req, res) => {
 
         const payment = await payRes.json();
 
-        // Solo procesamos pagos aprobados
         if (payment.status !== 'approved') {
             return res.status(200).send('OK');
         }
@@ -603,9 +590,8 @@ app.post('/webhook/mercadopago', async (req, res) => {
 
         const fecha = new Date().toISOString().split('T')[0];
 
-
         await db.execute(
-            'INSERT INTO `compras`(`idProducto`, `idUsuario`, `fechaCompra`, `payment_id`) VALUES (?, ?, ?, ?)',
+            `INSERT INTO compras (idProducto, idUsuario, fechaCompra, payment_id)VALUES (?, ?, ?, ?)`,
             [idProducto, idUsuario, fecha, String(paymentId)]
         );
 
@@ -619,18 +605,18 @@ app.post('/webhook/mercadopago', async (req, res) => {
 });
 
 
-app.delete('/eliminarProducto', async (req, res) =>{
+app.delete('/eliminarPedido', async (req, res) =>{
     const { id } = req.body;
 
     try{
         const sql = 'delete from compras where id = ?'
         await db.execute(sql, [id])
-        
+
         res.status(200).json({
             success: true,
             message: 'Pedido Eliminado con exito'
         });
-        
+
     }catch (error){
         res.status(500).json({
             success: false,
