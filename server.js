@@ -464,10 +464,11 @@ const client = new MercadoPagoConfig({
 
 app.post('/create_preference', async (req, res) => {
     try {
-        const { name, price, idProducto, idUsuario } = req.body;
+        const { name, price, idProducto, idUsuario, detalles } = req.body;
         const parsedPrice = Number(String(price).replace(',', '.'));
         const idProd = Number(idProducto);
         const idUser = Number(idUsuario);
+        const extras = String(detalles)
 
         if (!name || !Number.isFinite(parsedPrice) || parsedPrice <= 0) {
             return res.status(400).json({ error: 'Faltan datos: name o price inválido' });
@@ -493,6 +494,7 @@ app.post('/create_preference', async (req, res) => {
             metadata: {
                 id_producto: idProd,
                 id_usuario: idUser,
+                detalles:extras || null
             },
             back_urls: {
                 success: 'https://imperio-gym.vercel.app/Success',
@@ -570,6 +572,7 @@ app.post('/webhook/mercadopago', async (req, res) => {
 
         const idProducto = Number(payment.metadata?.id_producto);
         const idUsuario = Number(payment.metadata?.id_usuario);
+        const detalles = payment.metadata?.detalles || null;
 
         if (
             !Number.isFinite(idProducto) || idProducto <= 0 ||
@@ -591,8 +594,8 @@ app.post('/webhook/mercadopago', async (req, res) => {
         const fecha = new Date().toISOString().split('T')[0];
 
         await db.execute(
-            `INSERT INTO compras (idProducto, idUsuario, fechaCompra, payment_id)VALUES (?, ?, ?, ?)`,
-            [idProducto, idUsuario, fecha, String(paymentId)]
+            `INSERT INTO compras (idProducto, idUsuario, fechaCompra, payment_id, detalles)VALUES (?, ?, ?, ?, ?)`,
+            [idProducto, idUsuario, fecha, String(paymentId), detalles]
         );
 
         console.log(`[MP webhook] Compra registrada — producto ${idProducto}, usuario ${idUsuario}`);
@@ -605,7 +608,7 @@ app.post('/webhook/mercadopago', async (req, res) => {
 });
 
 
-app.delete('/eliminarPedido', async (req, res) =>{
+app.delete('/eliminarProducto', async (req, res) =>{
     const { id } = req.body;
 
     try{
