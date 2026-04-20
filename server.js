@@ -1,6 +1,7 @@
 const express = require('express')
 const cors = require('cors')
 const multer = require("multer");
+const dns = require('dns').promises;
 const crypto = require('crypto');
 require('dotenv').config();
 
@@ -87,6 +88,20 @@ app.get("/", (req, res) => {
 // ─────────────────────────────────────────────
 // AUTH
 // ─────────────────────────────────────────────
+
+async function validateEmail(email) {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) return false;
+
+    const domain = email.split('@')[1];
+    try {
+        const mx = await dns.resolveMx(domain);
+        return mx && mx.length > 0;
+    } catch {
+        return false;
+    }
+}
+
 app.post('/register', async (req, res) => {
     const { name, pass, email } = req.body;
 
@@ -94,6 +109,23 @@ app.post('/register', async (req, res) => {
         if (!name || !pass || !email) {
             return res.status(400).json({ success: false, message: 'Complete all fields' })
         }
+
+        const isValid = await validateEmail(email);
+        if (!isValid) {
+            return res.status(400).json({ success: false, message: 'Email inválido o dominio inexistente' });
+        }
+
+        const queryCheck = 'SELECT * FROM users WHERE name = ? OR email = ?';
+        const [rows] = await db.execute(queryCheck, [name, email]); // Nota: usualmente desestructuramos [rows]
+
+        if (rows.length > 0) {
+            // Importante: usar return para detener la ejecución
+            return res.status(409).json({
+                success: false,
+                message: 'Ese nombre ya existe'
+            });
+        }
+
         const sql = "INSERT INTO users (name, password, email) VALUES (?, ?, ?)";
         await db.execute(sql, [name, pass, email]);
 
