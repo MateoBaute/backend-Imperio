@@ -764,7 +764,7 @@ app.get('/api/mensualidad', async (req, res) => {
 app.post('/usuario/mensualidades', async (req, res) => {
     const { id } = req.body
 
-    try{
+    try {
         const sql = 'select * from mensualidades where id = ?'
         const [rows] = await db.execute(sql, [id])
 
@@ -774,7 +774,7 @@ app.post('/usuario/mensualidades', async (req, res) => {
             user: rows
         })
 
-    }catch (error){
+    } catch (error) {
         res.status(500).json({
             success: false,
             message: 'Error al conectar con el servidor', error
@@ -782,6 +782,99 @@ app.post('/usuario/mensualidades', async (req, res) => {
     }
 })
 
+app.post('/marcarIngreso', async (req, res) => {
+    const { name, cedulaFinal, fecha } = req.body
+
+    if (!name || !cedulaFinal || !fecha) {
+        return res.status(400).json({
+            success: false,
+            message: 'Hay campos incompletos'
+        });
+    }
+
+    try {
+
+        const CheckQuery = 'select * from mensualidades where cedula = ? AND name = ?'
+        const [rows] = await db.execute(CheckQuery, [cedulaFinal, name])
+        if (rows.length === 0) {
+            return res.status(409).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            })
+        }
+
+        const fechaIngreso = new Date(fecha);
+        if (Number.isNaN(fechaIngreso.getTime())) {
+            return res.status(400).json({
+                success: false,
+                message: 'Formato de fecha invalido. Usa YYYY-MM-DD'
+            })
+        }
+
+        const fechaVencimiento = new Date(rows[0].fechaVencimiento);
+        fechaIngreso.setHours(0, 0, 0, 0);
+        fechaVencimiento.setHours(0, 0, 0, 0);
+
+        if (fechaIngreso > fechaVencimiento) {
+            const sql = 'INSERT INTO ingresos (name, cedula, fecha) VALUES (?, ?, ?);'
+            await db.execute(sql, [name, cedulaFinal, fecha])
+            return res.status(200).json({
+                success: true,
+                message: 'Mensualidad Vencida'
+            })
+        }
+
+        const sql = 'INSERT INTO ingresos (name, cedula, fecha) VALUES (?, ?, ?);'
+        await db.execute(sql, [name, cedulaFinal, fecha])
+
+        res.status(200).json({
+            success: true,
+            message: 'Ingreso marcado con exito'
+        })
+    } catch (error) {
+        console.error('Error en /ingreso:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al marcar ingreso',
+            error: { message: error.message }
+        });
+    }
+})
+
+
+app.post('/ingresos', async (req, res) => {
+    const { name } = req.body
+
+    if (!name) {
+        return res.status(400).json({
+            success: false
+        })
+    }
+
+    try {
+        const sql = 'select * from ingresos where name = ?'
+        const [rows] = await db.execute(sql, [name])
+
+        if (rows[0].length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No hay registros del usuario'
+            })
+        }
+
+        res.status(200).json({
+            success: true,
+            ingresos: rows
+        })
+
+    } catch (error) {
+        console.log(error)
+        res.status(500).json({
+            success: false,
+            message: 'Error al buscar usuario',
+        })
+    }
+})
 
 
 app.listen(3001, () => console.log("Servidor corriendo en el puerto 3001"));
