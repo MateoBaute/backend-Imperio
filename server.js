@@ -7,25 +7,25 @@ require('dotenv').config();
 const mysql = require('mysql2/promise');
 const app = express()
 
-// const db = mysql.createPool({
-//     host: 'mysql-2bb46cb6-mateobaute10-8084.d.aivencloud.com',
-//     user: 'avnadmin',
-//     password: 'AVNS_jFiUEZuuCMRT7TL8vah',
-//     database: 'imperio-gym',
-//     waitForConnections: true,
-//     connectionLimit: 10,
-//     port: 22286
-// });
-
 const db = mysql.createPool({
-    host: 'localhost',
-    user: 'root',
-    password: '',
+    host: 'mysql-2bb46cb6-mateobaute10-8084.d.aivencloud.com',
+    user: 'avnadmin',
+    password: 'AVNS_jFiUEZuuCMRT7TL8vah',
     database: 'imperio-gym',
     waitForConnections: true,
     connectionLimit: 10,
-    port: 3306
+    port: 22286
 });
+
+// const db = mysql.createPool({
+//     host: 'localhost',
+//     user: 'root',
+//     password: '',
+//     database: 'imperio-gym',
+//     waitForConnections: true,
+//     connectionLimit: 10,
+//     port: 3306
+// });
 
 // ⚠️ El webhook de MP necesita el body crudo (raw) para validar la firma.
 // Por eso usamos express.raw SOLO para esa ruta, y express.json para el resto.
