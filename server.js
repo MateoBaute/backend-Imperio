@@ -761,6 +761,27 @@ app.get('/api/mensualidad', async (req, res) => {
     }
 })
 
+app.post('/usuario/mensualidades', async (req, res) => {
+    const { id } = req.body
+
+    try{
+        const sql = 'select * from mensualidades where id = ?'
+        const [rows] = await db.execute(sql, [id])
+
+        res.status(200).json({
+            success: true,
+            message: 'Usuario encontrado con exito',
+            user: rows
+        })
+
+    }catch (error){
+        res.status(500).json({
+            success: false,
+            message: 'Error al conectar con el servidor', error
+        })
+    }
+})
+
 
 
 app.listen(3001, () => console.log("Servidor corriendo en el puerto 3001"));
