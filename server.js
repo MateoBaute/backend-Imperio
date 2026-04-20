@@ -7,14 +7,24 @@ require('dotenv').config();
 const mysql = require('mysql2/promise');
 const app = express()
 
+// const db = mysql.createPool({
+//     host: 'mysql-2bb46cb6-mateobaute10-8084.d.aivencloud.com',
+//     user: 'avnadmin',
+//     password: 'AVNS_jFiUEZuuCMRT7TL8vah',
+//     database: 'imperio-gym',
+//     waitForConnections: true,
+//     connectionLimit: 10,
+//     port: 22286
+// });
+
 const db = mysql.createPool({
-    host: 'mysql-2bb46cb6-mateobaute10-8084.d.aivencloud.com',
-    user: 'avnadmin',
-    password: 'AVNS_jFiUEZuuCMRT7TL8vah',
+    host: 'localhost',
+    user: 'root',
+    password: '',
     database: 'imperio-gym',
     waitForConnections: true,
     connectionLimit: 10,
-    port: 22286
+    port: 3306
 });
 
 // ⚠️ El webhook de MP necesita el body crudo (raw) para validar la firma.
@@ -605,10 +615,10 @@ app.post('/webhook/mercadopago', async (req, res) => {
 });
 
 
-app.delete('/eliminarPedido', async (req, res) =>{
+app.delete('/eliminarPedido', async (req, res) => {
     const { id } = req.body;
 
-    try{
+    try {
         const sql = 'delete from compras where id = ?'
         await db.execute(sql, [id])
 
@@ -617,7 +627,7 @@ app.delete('/eliminarPedido', async (req, res) =>{
             message: 'Pedido Eliminado con exito'
         });
 
-    }catch (error){
+    } catch (error) {
         res.status(500).json({
             success: false,
             message: 'error al conectar con el servidor'
@@ -625,5 +635,100 @@ app.delete('/eliminarPedido', async (req, res) =>{
     }
 
 })
+
+app.post('/api/user', async (req, res) => {
+    const { name, cedula, correo, monto, fechaPago, fechaVencimiento } = req.body;
+    console.log(req.body)
+
+    const montoFinal = Number(monto)
+    const cedulaFinal = Number(cedula)
+
+    try {
+        if (!name || !cedulaFinal || !correo || !montoFinal || !fechaPago || !fechaVencimiento) {
+            return res.status(400).json({
+                success: false,
+                message: 'Faltan campos requeridos'
+            });
+        }
+
+        // Verificar si el usuario existe
+        const [userResult] = await db.execute(
+            'SELECT id FROM users WHERE name = ?',
+            [name]
+        );
+
+        if (userResult.length === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Usuario no encontrado'
+            });
+        }
+
+        // Verificar si ya tiene mensualidad
+        const [mensualidadResult] = await db.execute(
+            'SELECT id FROM mensualidades WHERE cedula = ?',
+            [cedulaFinal]
+        );
+
+        if (mensualidadResult.length === 0) {
+            // INSERT
+            const sql = `
+                INSERT INTO mensualidades 
+                (name, cedula, correo, monto, fechaPago, fechaVencimiento) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            `;
+            const [result] = await db.execute(sql, [name, cedulaFinal, correo, montoFinal, fechaPago, fechaVencimiento]);
+            console.log(result);
+        } else {
+            // UPDATE correcto
+            const sql = `
+                UPDATE mensualidades 
+                SET monto = ?, fechaPago = ?, fechaVencimiento = ?
+                WHERE cedula = ?
+            `;
+            await db.execute(sql, [montoFinal, fechaPago, fechaVencimiento, cedulaFinal]);
+        }
+
+        res.status(201).json({
+            success: true,
+            message: 'Mensualidad registrada correctamente'
+        });
+
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al procesar la solicitud'
+        });
+    }
+});
+
+app.get('/api/mensualidad', async (req, res) => {
+    try {
+        const sql = 'SELECT id, name, cedula, correo, monto, fechaPago, fechaVencimiento FROM mensualidades ORDER BY fechaPago DESC';
+        const [rows] = await db.execute(sql);
+
+        if (rows.length === 0) {
+            return res.status(200).json({
+                success: true,
+                datos: [],
+                message: 'No hay registros de mensualidades'
+            });
+        }
+
+        res.status(200).json({
+            success: true,
+            datos: rows
+        });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({
+            success: false,
+            message: 'Error al obtener las mensualidades'
+        });
+    }
+})
+
+
 
 app.listen(3001, () => console.log("Servidor corriendo en el puerto 3001"));
